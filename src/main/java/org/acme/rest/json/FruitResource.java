@@ -2,18 +2,19 @@ package org.acme.rest.json;
 
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.Arrays;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 import javax.enterprise.event.Observes;
 import javax.security.auth.Subject;
 import javax.ws.rs.Path;
+import javax.ws.rs.container.AsyncResponse;
+import javax.ws.rs.container.Suspended;
 
 import org.infinispan.commons.api.CacheContainerAdmin;
 import org.infinispan.commons.dataconversion.MediaType;
@@ -35,9 +36,9 @@ import org.infinispan.rest.resources.CacheResourceV2;
 
 import io.netty.handler.codec.http.HttpHeaderNames;
 import io.quarkus.runtime.StartupEvent;
-import io.vertx.core.Future;
-import io.vertx.core.buffer.Buffer;
-import io.vertx.core.http.HttpServerRequest;
+import io.smallrye.mutiny.Uni;
+import io.vertx.mutiny.core.buffer.Buffer;
+import io.vertx.mutiny.core.http.HttpServerRequest;
 
 @Path("v2")
 public class FruitResource {
@@ -60,32 +61,27 @@ public class FruitResource {
         if (result.getStatus() == LookupResult.Status.FOUND) {
             Map<String, String> getVariables = result.getVariables();
             ourRequest.setVariables(getVariables);
-            handleInvocation(request, ourRequest, result.getInvocation());
+            handleInvocation(request, ourRequest, result.getInvocation())
+                  .subscribe().with(__ -> { }, t -> {
+                      System.err.println("Error encountered!: " + t);
+                  });
         } else {
-            request.response().end("Status was: " + result.getStatus());
+            request.response().end("Status was: " + result.getStatus())
+                  .subscribe().with(__ -> { }, t -> {
+                      System.err.println("Error encountered!: " + t);
+                  });
         }
     }
 
-    Future<Void> handleInvocation(HttpServerRequest request, OurRequest ourRequest, Invocation invocation) {
+    Uni<Void> handleInvocation(HttpServerRequest request, OurRequest ourRequest, Invocation invocation) {
+        Uni<RestResponse> response;
         if (invocation.requiresBody()) {
-            Future<Buffer> body = request.body();
-            if (!body.isComplete()) {
-                CompletableFuture<Void> stage = new CompletableFuture<>();
-                request.endHandler(__ -> {
-                    handleInvocation(request, ourRequest, invocation).onComplete(r -> {
-                       if (r.succeeded()) {
-                           stage.complete(null);
-                       } else {
-                           stage.completeExceptionally(r.cause());
-                       }
-                    });
-                });
-                return Future.fromCompletionStage(stage);
-            }
+            response = request.body()
+                  .onItem().transformToUni(__ -> Uni.createFrom().completionStage(invocation.handler().apply(ourRequest)));
+        } else {
+            response = Uni.createFrom().completionStage(invocation.handler().apply(ourRequest));
         }
-        CompletionStage<RestResponse> response = invocation.handler().apply(ourRequest);
-        return Future.fromCompletionStage(response)
-              .flatMap(rr -> {
+        return response.onItem().transformToUni(rr -> {
                   if (rr != null && !(rr instanceof VertxRestResponse)) {
                       throw new IllegalArgumentException("Only VertxRestResponse supported!");
                   }
@@ -153,37 +149,37 @@ public class FruitResource {
 
         @Override
         public ContentSource contents() {
-            Future<Buffer> bufferFuture = httpServerRequest.body();
-            if (bufferFuture.succeeded()) {
-                return new ContentSource() {
-                    @Override
-                    public String asString() {
-                        byte[] content = rawContent();
-                        return new String(content, 0, content.length, StandardCharsets.UTF_8);
-                    }
-
-                    @Override
-                    public byte[] rawContent() {
-                        return bufferFuture.result().getBytes();
-                    }
-                };
-            }
-            throw new UnsupportedOperationException("");
-//            Uni<Buffer> bufferFuture = httpServerRequest.body();
-//            // TODO: add in a way to retrieve non blocking?
-//            Buffer buffer = bufferFuture.await().atMost(Duration.ZERO);
-//            return new ContentSource() {
-//                @Override
-//                public String asString() {
-//                    byte[] content = rawContent();
-//                    return new String(content, 0, content.length, StandardCharsets.UTF_8);
-//                }
+//            Future<Buffer> bufferFuture = httpServerRequest.body();
+//            if (bufferFuture.succeeded()) {
+//                return new ContentSource() {
+//                    @Override
+//                    public String asString() {
+//                        byte[] content = rawContent();
+//                        return new String(content, 0, content.length, StandardCharsets.UTF_8);
+//                    }
 //
-//                @Override
-//                public byte[] rawContent() {
-//                    return buffer.getBytes();
-//                }
-//            };
+//                    @Override
+//                    public byte[] rawContent() {
+//                        return bufferFuture.result().getBytes();
+//                    }
+//                };
+//            }
+//            throw new UnsupportedOperationException("");
+            Uni<Buffer> bufferFuture = httpServerRequest.body();
+            // TODO: add in a way to retrieve non blocking?
+            Buffer buffer = bufferFuture.await().atMost(Duration.ZERO);
+            return new ContentSource() {
+                @Override
+                public String asString() {
+                    byte[] content = rawContent();
+                    return new String(content, 0, content.length, StandardCharsets.UTF_8);
+                }
+
+                @Override
+                public byte[] rawContent() {
+                    return buffer.getBytes();
+                }
+            };
         }
 
         @Override
@@ -357,7 +353,7 @@ public class FruitResource {
 
         @Override
         public InetSocketAddress getRemoteAddress() {
-            return (InetSocketAddress) httpServerRequest.remoteAddress();
+            return (InetSocketAddress) httpServerRequest.remoteAddress().getDelegate();
         }
     }
 }

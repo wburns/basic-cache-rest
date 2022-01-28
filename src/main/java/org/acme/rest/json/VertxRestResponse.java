@@ -13,9 +13,9 @@ import org.infinispan.rest.framework.RestResponse;
 import org.infinispan.rest.framework.impl.RestResponseBuilder;
 
 import io.netty.handler.codec.http.HttpResponseStatus;
-import io.vertx.core.Future;
-import io.vertx.core.buffer.Buffer;
-import io.vertx.core.http.HttpServerResponse;
+import io.smallrye.mutiny.Uni;
+import io.vertx.mutiny.core.buffer.Buffer;
+import io.vertx.mutiny.core.http.HttpServerResponse;
 
 public class VertxRestResponse implements RestResponse {
    private final VertxRestResponse.Builder builder;
@@ -34,7 +34,7 @@ public class VertxRestResponse implements RestResponse {
       return builder.getEntity();
    }
 
-   public Future<Void> process() {
+   public Uni<Void> process() {
       Object entity = getEntity();
       if (entity != null) {
          if (entity instanceof WrappedBytes) {
