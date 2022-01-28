@@ -15,8 +15,17 @@ public class FruitResourceTest {
         given()
           .when().get("/v2/caches/test/foo")
           .then()
-             .statusCode(200)
-             .body(is("cache/null/test=foo/null/null"));
+             .statusCode(404);
+
+        given()
+              .when().body("bar").put("/v2/caches/test/foo")
+              .then().statusCode(204);
+
+        given()
+              .when().get("/v2/caches/test/foo")
+              .then()
+              .body(is("bar"))
+              .statusCode(200);
     }
 
 }

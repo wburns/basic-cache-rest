@@ -8,28 +8,26 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 import javax.enterprise.event.Observes;
 import javax.security.auth.Subject;
-import javax.ws.rs.GET;
 import javax.ws.rs.Path;
 
 import org.infinispan.commons.api.CacheContainerAdmin;
 import org.infinispan.commons.dataconversion.MediaType;
-import org.infinispan.commons.marshall.WrappedByteArray;
-import org.infinispan.commons.marshall.WrappedBytes;
-import org.infinispan.commons.time.DefaultTimeService;
-import org.infinispan.commons.time.TimeService;
 import org.infinispan.context.Flag;
-import org.infinispan.eviction.EvictionType;
 import org.infinispan.rest.InvocationHelper;
 import org.infinispan.rest.RequestHeader;
+import org.infinispan.rest.cachemanager.RestCacheManager;
 import org.infinispan.rest.framework.ContentSource;
+import org.infinispan.rest.framework.Invocation;
 import org.infinispan.rest.framework.LookupResult;
 import org.infinispan.rest.framework.Method;
 import org.infinispan.rest.framework.ResourceManager;
 import org.infinispan.rest.framework.RestRequest;
+import org.infinispan.rest.framework.RestResponse;
 import org.infinispan.rest.framework.impl.InvocationImpl;
 import org.infinispan.rest.framework.impl.ResourceManagerImpl;
 import org.infinispan.rest.operations.exceptions.InvalidFlagException;
@@ -44,39 +42,55 @@ import io.vertx.core.http.HttpServerRequest;
 @Path("v2")
 public class FruitResource {
     private ResourceManager resourceManager;
-//    private StrippedSimpleCache simpleCache;
 
     void onStart(@Observes StartupEvent ev) {
         resourceManager = new ResourceManagerImpl();
-        CacheResourceV2 cacheResourceV2 = new OurV2Resource(null);
-        simpleCache = new StrippedSimpleCache();
-        TimeService timeService = new DefaultTimeService();
-//        simpleCache.start(new OurBoundedOffHeapDataContainer(timeService,1_000_000, EvictionType.MEMORY),
-//              timeService, -1, -1);
+        InvocationHelper invocationHelper = new OurInvocationHelper(null,
+              (RestCacheManager) new OurRestCacheManager(ConcurrentHashMap::new),
+              null, null, null, null, null, null);
+        CacheResourceV2 cacheResourceV2 = new OurV2Resource(invocationHelper);
 
         resourceManager.registerResource("/", cacheResourceV2);
     }
 
-    @GET
     @Path("{var:.*}")
-    public CompletionStage<String> allParams(HttpServerRequest request) {
-        request.response().setChunked()
+    public void allParams(HttpServerRequest request) {
         OurRequest ourRequest = new OurRequest(request);
         LookupResult result = resourceManager.lookupResource(ourRequest.method(), ourRequest.uri());
         if (result.getStatus() == LookupResult.Status.FOUND) {
             Map<String, String> getVariables = result.getVariables();
             ourRequest.setVariables(getVariables);
-            String cacheKey = getVariables.get("cacheKey");
-//            WrappedBytes value = simpleCache.get(new WrappedByteArray(cacheKey.getBytes(StandardCharsets.UTF_8)));
-            if (value == null) {
-                return CompletableFuture.completedFuture("NOT FOUND");
-            }
-//            CompletionStage<RestResponse> response = result.getInvocation().handler().apply(ourRequest);
-//            return response.thenApply(rr -> rr.getEntity().toString());
-            return CompletableFuture.completedFuture(new String(value.getBytes(), StandardCharsets.UTF_8));
+            handleInvocation(request, ourRequest, result.getInvocation());
         } else {
-            return CompletableFuture.completedFuture(result.getStatus().toString());
+            request.response().end("Status was: " + result.getStatus());
         }
+    }
+
+    Future<Void> handleInvocation(HttpServerRequest request, OurRequest ourRequest, Invocation invocation) {
+        if (invocation.requiresBody()) {
+            Future<Buffer> body = request.body();
+            if (!body.isComplete()) {
+                CompletableFuture<Void> stage = new CompletableFuture<>();
+                request.endHandler(__ -> {
+                    handleInvocation(request, ourRequest, invocation).onComplete(r -> {
+                       if (r.succeeded()) {
+                           stage.complete(null);
+                       } else {
+                           stage.completeExceptionally(r.cause());
+                       }
+                    });
+                });
+                return Future.fromCompletionStage(stage);
+            }
+        }
+        CompletionStage<RestResponse> response = invocation.handler().apply(ourRequest);
+        return Future.fromCompletionStage(response)
+              .flatMap(rr -> {
+                  if (rr != null && !(rr instanceof VertxRestResponse)) {
+                      throw new IllegalArgumentException("Only VertxRestResponse supported!");
+                  }
+                  return ((VertxRestResponse) rr).process();
+              });
     }
 
     static class OurV2Resource extends CacheResourceV2 {
@@ -101,6 +115,10 @@ public class FruitResource {
 
         OurRequest(HttpServerRequest httpServerRequest) {
             this.httpServerRequest = httpServerRequest;
+        }
+
+        public HttpServerRequest getHttpServerRequest() {
+            return httpServerRequest;
         }
 
         @Override
@@ -150,8 +168,22 @@ public class FruitResource {
                     }
                 };
             }
-            // TODO: add in a handler and end handler??
-            throw new UnsupportedOperationException("Future wasn't completed?");
+            throw new UnsupportedOperationException("");
+//            Uni<Buffer> bufferFuture = httpServerRequest.body();
+//            // TODO: add in a way to retrieve non blocking?
+//            Buffer buffer = bufferFuture.await().atMost(Duration.ZERO);
+//            return new ContentSource() {
+//                @Override
+//                public String asString() {
+//                    byte[] content = rawContent();
+//                    return new String(content, 0, content.length, StandardCharsets.UTF_8);
+//                }
+//
+//                @Override
+//                public byte[] rawContent() {
+//                    return buffer.getBytes();
+//                }
+//            };
         }
 
         @Override
