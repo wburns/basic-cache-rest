@@ -31,6 +31,7 @@ import org.infinispan.rest.operations.exceptions.InvalidFlagException;
 import org.infinispan.rest.resources.CacheResourceV2;
 
 import io.netty.handler.codec.http.HttpHeaderNames;
+import io.netty.handler.codec.http.HttpResponseStatus;
 import io.quarkus.runtime.StartupEvent;
 import io.quarkus.vertx.web.Body;
 import io.quarkus.vertx.web.Route;
@@ -58,7 +59,7 @@ public class FruitResource {
         if (result.getStatus() == LookupResult.Status.FOUND) {
             Map<String, String> getVariables = result.getVariables();
             ourRequest.setVariables(getVariables);
-            handleInvocation(request, ourRequest, result.getInvocation())
+            handleInvocation(ourRequest, result.getInvocation())
                   .subscribe().with(__ -> { }, t -> {
                       System.err.println("Error encountered!: " + t);
                   });
@@ -70,20 +71,20 @@ public class FruitResource {
         }
     }
 
-    Uni<Void> handleInvocation(HttpServerRequest request, OurRequest ourRequest, Invocation invocation) {
-        Uni<RestResponse> response;
-        if (invocation.requiresBody()) {
-            response = request.body()
-                  .onItem().transformToUni(__ -> Uni.createFrom().completionStage(invocation.handler().apply(ourRequest)));
-        } else {
-            response = Uni.createFrom().completionStage(invocation.handler().apply(ourRequest));
-        }
-        return response.onItem().transformToUni(rr -> {
-                  if (rr != null && !(rr instanceof VertxRestResponse)) {
-                      throw new IllegalArgumentException("Only VertxRestResponse supported!");
+    Uni<Void> handleInvocation(OurRequest ourRequest, Invocation invocation) {
+        Uni<RestResponse> response = Uni.createFrom().completionStage(invocation.handler().apply(ourRequest));
+        return response.onFailure().recoverWithItem(t -> {
+            t.printStackTrace();
+            return new VertxRestResponse.Builder(ourRequest.getHttpServerRequest().response())
+                  .status(HttpResponseStatus.INTERNAL_SERVER_ERROR.code()).build();
+        }).onItem().transformToUni(rr -> {
+                  if (!(rr instanceof VertxRestResponse)) {
+                      throw new IllegalArgumentException("Only VertxRestResponse supported got " + rr);
                   }
                   return ((VertxRestResponse) rr).process();
-              });
+              }).onFailure().invoke(t -> {
+            t.printStackTrace();
+        });
     }
 
     static class OurV2Resource extends CacheResourceV2 {

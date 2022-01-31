@@ -75,6 +75,9 @@ public class VertxRestResponse implements RestResponse {
 
       @Override
       public VertxRestResponse.Builder cacheControl(CacheControl cacheControl) {
+         if (cacheControl == null) {
+            return this;
+         }
          return header(ResponseHeader.CACHE_CONTROL_HEADER.getValue(), cacheControl.toString());
       }
 
@@ -87,11 +90,17 @@ public class VertxRestResponse implements RestResponse {
 
       @Override
       public VertxRestResponse.Builder contentType(MediaType type) {
+         if (type == null) {
+            return this;
+         }
          return contentType(type.toString());
       }
 
       @Override
       public VertxRestResponse.Builder contentType(String type) {
+         if (type == null) {
+            return this;
+         }
          return header(ResponseHeader.CONTENT_TYPE_HEADER.getValue(), type);
       }
 
@@ -102,26 +111,41 @@ public class VertxRestResponse implements RestResponse {
 
       @Override
       public VertxRestResponse.Builder expires(Date expires) {
+         if (expires == null) {
+            return this;
+         }
          return setDateHeader(ResponseHeader.EXPIRES_HEADER.getValue(), expires.getTime());
       }
 
       @Override
       public VertxRestResponse.Builder lastModified(Long epoch) {
+         if (epoch == null) {
+            return this;
+         }
          return setDateHeader(ResponseHeader.LAST_MODIFIED_HEADER.getValue(), epoch);
       }
 
       @Override
       public VertxRestResponse.Builder addProcessedDate(Date d) {
+         if (d == null) {
+            return this;
+         }
          return setDateHeader(ResponseHeader.DATE_HEADER.getValue(), d.getTime());
       }
 
       @Override
       public VertxRestResponse.Builder location(String location) {
+         if (location == null) {
+            return this;
+         }
          return header(ResponseHeader.LOCATION.getValue(), location);
       }
 
       @Override
       public VertxRestResponse.Builder eTag(String tag) {
+         if (tag == null) {
+            return this;
+         }
          return header(ResponseHeader.ETAG_HEADER.getValue(), tag);
       }
 

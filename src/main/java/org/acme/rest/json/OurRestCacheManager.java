@@ -58,6 +58,9 @@ public class OurRestCacheManager implements RestCacheManager<WrappedBytes> {
    }
 
    WrappedBytes toKey(Object key) {
+      if (key instanceof byte[]) {
+         return new WrappedByteArray((byte[]) key);
+      }
       return new WrappedByteArray(key.toString().getBytes(StandardCharsets.UTF_8));
    }
 
@@ -92,7 +95,7 @@ public class OurRestCacheManager implements RestCacheManager<WrappedBytes> {
       ConcurrentMap<WrappedBytes, InternalCacheEntry<WrappedBytes, WrappedBytes>> map = getMap(cacheName);
       WrappedBytes keyBytes = toKey(key);
       InternalCacheEntry<WrappedBytes, WrappedBytes> ice = new ImmortalCacheEntry(keyBytes, new WrappedByteArray(value));
-      map.put(toKey(key), ice);
+      map.put(keyBytes, ice);
       return CompletableFutures.completedNull();
    }
 
