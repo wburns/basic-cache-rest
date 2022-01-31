@@ -18,7 +18,7 @@ public class FruitResourceTest {
              .statusCode(404);
 
         given()
-              .when().body("bar").put("/v2/caches/test/foo")
+              .when().body("bar").post("/v2/caches/test/foo")
               .then().statusCode(204);
 
         given()

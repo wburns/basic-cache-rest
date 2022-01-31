@@ -2,7 +2,6 @@ package org.acme.rest.json;
 
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
-import java.time.Duration;
 import java.util.Arrays;
 import java.util.EnumSet;
 import java.util.List;
@@ -12,9 +11,6 @@ import java.util.stream.Collectors;
 
 import javax.enterprise.event.Observes;
 import javax.security.auth.Subject;
-import javax.ws.rs.Path;
-import javax.ws.rs.container.AsyncResponse;
-import javax.ws.rs.container.Suspended;
 
 import org.infinispan.commons.api.CacheContainerAdmin;
 import org.infinispan.commons.dataconversion.MediaType;
@@ -36,11 +32,12 @@ import org.infinispan.rest.resources.CacheResourceV2;
 
 import io.netty.handler.codec.http.HttpHeaderNames;
 import io.quarkus.runtime.StartupEvent;
+import io.quarkus.vertx.web.Body;
+import io.quarkus.vertx.web.Route;
 import io.smallrye.mutiny.Uni;
-import io.vertx.mutiny.core.buffer.Buffer;
+import io.vertx.core.buffer.Buffer;
 import io.vertx.mutiny.core.http.HttpServerRequest;
 
-@Path("v2")
 public class FruitResource {
     private ResourceManager resourceManager;
 
@@ -54,9 +51,9 @@ public class FruitResource {
         resourceManager.registerResource("/", cacheResourceV2);
     }
 
-    @Path("{var:.*}")
-    public void allParams(HttpServerRequest request) {
-        OurRequest ourRequest = new OurRequest(request);
+    @Route(regex = ".*")
+    public void allParams(HttpServerRequest request, @Body Buffer body) {
+        OurRequest ourRequest = new OurRequest(request, body != null ? body.getBytes() : null);
         LookupResult result = resourceManager.lookupResource(ourRequest.method(), ourRequest.uri());
         if (result.getStatus() == LookupResult.Status.FOUND) {
             Map<String, String> getVariables = result.getVariables();
@@ -106,11 +103,13 @@ public class FruitResource {
         private static final MediaType DEFAULT_KEY_CONTENT_TYPE = MediaType.fromString("text/plain; charset=utf-8");
 
         private final HttpServerRequest httpServerRequest;
+        private final byte[] body;
 
         private Map<String, String> variables;
 
-        OurRequest(HttpServerRequest httpServerRequest) {
+        OurRequest(HttpServerRequest httpServerRequest, byte[] body) {
             this.httpServerRequest = httpServerRequest;
+            this.body = body;
         }
 
         public HttpServerRequest getHttpServerRequest() {
@@ -149,6 +148,17 @@ public class FruitResource {
 
         @Override
         public ContentSource contents() {
+            return new ContentSource() {
+                @Override
+                public String asString() {
+                    return new String(body, 0, body.length, StandardCharsets.UTF_8);
+                }
+
+                @Override
+                public byte[] rawContent() {
+                    return body;
+                }
+            };
 //            Future<Buffer> bufferFuture = httpServerRequest.body();
 //            if (bufferFuture.succeeded()) {
 //                return new ContentSource() {
@@ -165,21 +175,21 @@ public class FruitResource {
 //                };
 //            }
 //            throw new UnsupportedOperationException("");
-            Uni<Buffer> bufferFuture = httpServerRequest.body();
-            // TODO: add in a way to retrieve non blocking?
-            Buffer buffer = bufferFuture.await().atMost(Duration.ZERO);
-            return new ContentSource() {
-                @Override
-                public String asString() {
-                    byte[] content = rawContent();
-                    return new String(content, 0, content.length, StandardCharsets.UTF_8);
-                }
-
-                @Override
-                public byte[] rawContent() {
-                    return buffer.getBytes();
-                }
-            };
+//            Uni<Buffer> bufferFuture = httpServerRequest.body();
+//            // TODO: add in a way to retrieve non blocking?
+//            Buffer buffer = bufferFuture.await().atMost(Duration.ZERO);
+//            return new ContentSource() {
+//                @Override
+//                public String asString() {
+//                    byte[] content = rawContent();
+//                    return new String(content, 0, content.length, StandardCharsets.UTF_8);
+//                }
+//
+//                @Override
+//                public byte[] rawContent() {
+//                    return buffer.getBytes();
+//                }
+//            };
         }
 
         @Override
